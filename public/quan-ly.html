@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Gestão - Vida</title>
+    
+    <link rel="manifest" href="manifest.json">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .tab-active { border-bottom-color: #22c55e; color: #22c55e; font-weight: 600; }
+        .main-content { display: none; }
+        .main-content.active { display: block; }
+        .toast {
+            visibility: hidden; min-width: 250px; background-color: #333; color: #fff; text-align: center;
+            border-radius: 8px; padding: 16px; position: fixed; z-index: 2000; right: 30px;
+            bottom: -100px; opacity: 0; transition: all 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+        }
+        .toast.show { visibility: visible; opacity: 1; bottom: 30px; }
+        .modal { transition: opacity 0.25s ease; }
+        .table-professional { width: 100%; border-collapse: collapse; }
+        .table-professional th, .table-professional td { padding: 0.75rem 1rem; word-wrap: break-word; white-space: normal; }
+        .login-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(243, 244, 246, 0.95);
+            backdrop-filter: blur(8px);
+            display: flex; align-items: center; justify-content: center; z-index: 1000;
+        }
+        .login-box {
+            background-color: white; padding: 2.5rem; border-radius: 1rem;
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
+            text-align: center; width: 100%; max-width: 400px;
+        }
+        .login-box h2 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; }
+        .login-box p { margin-bottom: 1.5rem; color: #6b7281; }
+        .login-box select, .login-box input { width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; font-size: 1rem; }
+        
+        #admin-login-btn { 
+            width: 100%; 
+            padding: 0.75rem; 
+            border: none; 
+            border-radius: 0.5rem; 
+            background-color: #22c55e; 
+            color: white; 
+            font-weight: 600; 
+            cursor: pointer; 
+            transition: background-color 0.2s; 
+        }
+        #admin-login-btn:hover { background-color: #16a34a; }
+
+        .hidden { display: none !important; }
+        #scrollToTopBtn {
+            display: none; position: fixed; bottom: 20px; right: 30px; z-index: 99;
+            border: none; outline: none; background-color: #22c55e; color: white;
+            cursor: pointer; padding: 12px; border-radius: 50%; width: 48px; height: 48px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15); transition: background-color 0.3s, opacity 0.3s;
+        }
+        #scrollToTopBtn:hover { background-color: #16a34a; }
+        @media (max-width: 768px) {
+            .table-professional th, .table-professional td { font-size: 0.875rem; padding: 0.5rem; }
+            
+            /* NÂNG CẤP: Đảm bảo các nút trong bảng có chiều rộng đầy đủ trên di động khi xếp chồng */
+            .table-professional .responsive-action-btn {
+                width: 100%;
+                text-align: center;
+                display: block; /* Đảm bảo nút chiếm toàn bộ chiều rộng */
+                padding-top: 0.5rem;
+                padding-bottom: 0.5rem;
+            }
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-6 lg:p-8">
+
+    <div id="maintenance-mode-banner" class="hidden fixed top-0 left-0 right-0 bg-yellow-400 text-yellow-900 text-center p-3 z-[1500] flex justify-center items-center shadow-lg">
+        <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+        <span class="font-semibold">AVISO:</span> Você está no Modo de Manutenção. A regra de exclusão de 30 dias está desativada.
+        <button id="exit-maintenance-mode-btn" class="ml-6 bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-1 px-3 rounded-md text-sm">Sair do Modo de Manutenção</button>
+    </div>
+    
+    <div id="admin-login-overlay" class="login-overlay">
+        <div class="login-box">
+            <img src="https://i.imgur.com/sJ1ncn5.png" alt="Logo Vida" class="h-16 w-16 mx-auto mb-4">
+            <h2>Acesso de Administrador</h2>
+            <p>Por favor, selecione o seu utilizador e insira a senha.</p>
+            <select id="admin-login-select" class="mb-4">
+                <option value="Admin">Admin</option>
+                <option value="Admin 1">Admin 1</option>
+            </select>
+            <div class="relative w-full mb-4">
+                 <input type="password" id="admin-password-input" class="w-full p-3 pr-10 border border-gray-300 rounded-lg" placeholder="Senha">
+                 <button type="button" id="toggle-password-visibility" class="absolute inset-y-0 right-0 px-3 flex items-center text-gray-400 hover:text-gray-600">
+                 </button>
+            </div>
+            <button id="admin-login-btn">Entrar</button>
+        </div>
+    </div>
+
+    <div id="main-app-container" class="max-w-7xl mx-auto bg-white rounded-xl shadow-lg overflow-hidden hidden">
+        <header class="flex justify-between items-center p-4 sm:p-6 border-b border-gray-200">
+             <div class="flex items-center">
+                 <img src="https://i.imgur.com/sJ1ncn5.png" alt="Logo Vida" class="h-12 w-12 mr-4">
+                 <div>
+                     <h1 class="text-xl sm:text-2xl font-bold text-gray-800">Painel de Gestão do Administrador</h1>
+                     <p class="text-sm text-gray-500">Visão geral e relatórios do sistema</p>
+                 </div>
+             </div>
+             <button id="logout-btn" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg text-sm">Sair</button>
+        </header>
+        
+        <nav class="flex border-b border-gray-200 bg-gray-50 overflow-x-auto">
+            <button data-tab="transacoes" class="tab-button tab-active py-3 px-6 text-sm font-medium text-gray-500 border-b-2 border-transparent hover:bg-gray-100 focus:outline-none whitespace-nowrap">Relatório de Transações</button>
+            <button data-tab="limpar" class="tab-button py-3 px-6 text-sm font-medium text-gray-500 border-b-2 border-transparent hover:bg-gray-100 focus:outline-none whitespace-nowrap">Limpar Histórico</button>
+            <button data-tab="escolas" class="tab-button py-3 px-6 text-sm font-medium text-gray-500 border-b-2 border-transparent hover:bg-gray-100 focus:outline-none whitespace-nowrap">Escolas</button>
+            <button data-tab="gestao" class="tab-button py-3 px-6 text-sm font-medium text-gray-500 border-b-2 border-transparent hover:bg-gray-100 focus:outline-none whitespace-nowrap">Gestão de Pacientes</button>
+            <button data-tab="lista" class="tab-button py-3 px-6 text-sm font-medium text-gray-500 border-b-2 border-transparent hover:bg-gray-100 focus:outline-none whitespace-nowrap">Lista de Pacientes</button>
+            <button data-tab="relatorios" class="tab-button py-3 px-6 text-sm font-medium text-gray-500 border-b-2 border-transparent hover:bg-gray-100 focus:outline-none whitespace-nowrap">Relatórios de Pacientes</button>
+        </nav>
+
+        <main class="p-4 sm:p-6 min-h-[60vh]">
+            <div id="loading-indicator" class="text-center p-10">
+                <svg class="animate-spin h-8 w-8 text-green-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <p class="mt-2 text-gray-600">A carregar dados do servidor...</p>
+            </div>
+            <div id="error-message" class="hidden bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-md" role="alert">
+                 <p class="font-bold">Erro de Conexão</p>
+                 <p id="error-text"></p>
+            </div>
+            <div id="transacoes" class="main-content"></div>
+            <div id="limpar" class="main-content"></div>
+            <div id="lista" class="main-content"></div>
+            <div id="relatorios" class="main-content"></div>
+            <div id="gestao" class="main-content"></div>
+            <div id="escolas" class="main-content"></div>
+        </main>
+        
+        <footer class="text-center p-4 bg-gray-50 border-t text-xs text-gray-500">
+            © 2035 Direitos autorais da Pharmavida. Orgulhosamente criado por Hoàng Nam.
+            <button id="toggle-maintenance-mode-btn" class="ml-4 text-blue-500 hover:text-blue-700 text-xs underline">Ativar Modo de Manutenção</button>
+        </footer>
+    </div>
+    
+    <div id="maintenance-auth-modal" class="modal fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-[1600]">
+        <div class="relative top-20 mx-auto p-5 border w-full max-w-sm shadow-lg rounded-md bg-white">
+            <div class="mt-3 text-center">
+                <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100">
+                    <svg class="h-6 w-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                </div>
+                <h3 class="text-lg font-medium text-gray-900 mt-2">Confirmação Necessária</h3>
+                <p class="text-sm text-gray-500 mt-2">Para entrar no Modo de Manutenção, por favor, insira a sua senha de administrador novamente.</p>
+                <div class="mt-4">
+                    <input type="password" id="maintenance-password-input" placeholder="Sua Senha" class="w-full p-2 border border-gray-300 rounded-md shadow-sm">
+                </div>
+                <div class="mt-4 flex justify-center space-x-2">
+                    <button id="cancel-maintenance-btn" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md">Cancelar</button>
+                    <button id="confirm-maintenance-btn" class="px-4 py-2 bg-yellow-500 text-white rounded-md">Confirmar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <div id="toast" class="toast"></div>
+    <div id="student-modal" class="modal fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50"></div>
+    <div id="debit-modal" class="modal fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50"></div>
+    <div id="delete-modal" class="modal fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50"></div>
+    <div id="delete-transaction-modal" class="modal fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50"></div>
+    
+    <button id="scrollToTopBtn" title="Voltar ao topo">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" />
+        </svg>
+    </button>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            
+            const ADMIN_PASSWORDS = { 'Admin': 'admin2025', 'Admin 1': 'adminpass456' };
+            const adminLoginOverlay = document.getElementById('admin-login-overlay');
+            const adminLoginSelect = document.getElementById('admin-login-select');
+            const adminPasswordInput = document.getElementById('admin-password-input');
+            const adminLoginBtn = document.getElementById('admin-login-btn');
+            const mainAppContainer = document.getElementById('main-app-container');
+            const logoutBtn = document.getElementById('logout-btn');
+            let loggedInAdminUser = null; 
+
+            const togglePasswordBtn = document.getElementById('toggle-password-visibility');
+            const eyeIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>`;
+            const eyeSlashIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>`;
+            togglePasswordBtn.innerHTML = eyeIcon;
+
+            togglePasswordBtn.addEventListener('click', () => {
+                if (adminPasswordInput.type === 'password') {
+                    adminPasswordInput.type = 'text';
+                    togglePasswordBtn.innerHTML = eyeSlashIcon;
+                } else {
+                    adminPasswordInput.type = 'password';
+                    togglePasswordBtn.innerHTML = eyeIcon;
+                }
+            });
+
+
+            function handleAdminLogin() {
+                const selectedUser = adminLoginSelect.value;
+                const enteredPassword = adminPasswordInput.value;
+                if (ADMIN_PASSWORDS[selectedUser] === enteredPassword) {
+                    sessionStorage.setItem('adminLoggedIn', 'true');
+                    sessionStorage.setItem('adminUser', selectedUser);
+                    window.location.reload();
+                } else {
+                    showToast('Utilizador ou senha incorreta.', true);
+                    adminPasswordInput.value = '';
+                }
+            }
+
+            function handleLogout() {
+                sessionStorage.removeItem('adminLoggedIn');
+                sessionStorage.removeItem('adminUser');
+                if (isMaintenanceModeActive) {
+                    toggleMaintenanceUI(false);
+                }
+                window.location.reload();
+            }
+
+            function checkLoginStatus() {
+                const isAdminLoggedIn = sessionStorage.getItem('adminLoggedIn');
+                loggedInAdminUser = sessionStorage.getItem('adminUser');
+                if (isAdminLoggedIn && loggedInAdminUser) {
+                    adminLoginOverlay.classList.add('hidden');
+                    mainAppContainer.classList.remove('hidden');
+                    document.querySelector('[data-tab="transacoes"]').classList.add('tab-active');
+                    document.getElementById('transacoes').classList.add('active');
+                    fetchStudents(); 
+                } else {
+                    adminLoginOverlay.classList.remove('hidden');
+                    mainAppContainer.classList.add('hidden');
+                }
+            }
+            
+            adminLoginBtn.addEventListener('click', handleAdminLogin);
+            logoutBtn.addEventListener('click', handleLogout);
+
+            const serverUrl = 'https://pharmavida-server.onrender.com';
+            const INITIAL_CREDIT = 307692;
+            let allStudents = [];
+            let schools = [];
+            let selectedStudentForReport = null;
+            let currentTransactionsReportData = [];
+            let filterState = {};
+            let currentFilteredStudentsForPdf = []; 
+
+            let isMaintenanceModeActive = false;
+            let maintenanceModePassword = null;
+            const maintenanceBanner = document.getElementById('maintenance-mode-banner');
+            const toggleMaintenanceBtn = document.getElementById('toggle-maintenance-mode-btn');
+            const exitMaintenanceBtn = document.getElementById('exit-maintenance-mode-btn');
+            const maintenanceAuthModal = document.getElementById('maintenance-auth-modal');
+            const maintenancePasswordInput = document.getElementById('maintenance-password-input');
+            const confirmMaintenanceBtn = document.getElementById('confirm-maintenance-btn');
+            const cancelMaintenanceBtn = document.getElementById('cancel-maintenance-btn');
+
+            const loadingIndicator = document.getElementById('loading-indicator');
+            const errorMessage = document.getElementById('error-message');
+            const errorText = document.getElementById('error-text');
+            const tabs = document.querySelectorAll('.tab-button');
+            const contents = document.querySelectorAll('.main-content');
+            const toast = document.getElementById('toast');
+            const studentModal = document.getElementById('student-modal');
+            const debitModal = document.getElementById('debit-modal');
+            const deleteModal = document.getElementById('delete-modal');
+            const deleteTransactionModal = document.getElementById('delete-transaction-modal');
+
+            const socket = io(serverUrl);
+            socket.on('connect', () => console.log('Conectado ao servidor real-time.'));
+            socket.on('dataUpdated', (data) => {
+                showToast(data.message || 'Os dados foram atualizados!');
+                fetchStudents();
+            });
+            
+            const naturalSort = (a, b) => a.fullName.localeCompare(b.fullName, undefined, { numeric: true, sensitivity: 'base' });
+            const formatCurrency = (value) => new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA' }).format(value || 0);
+
+            const scrollToTopBtn = document.getElementById('scrollToTopBtn');
+            window.onscroll = function() {
+                if (document.body.scrollTop > 100 || document.documentElement.scrollTop > 100) {
+                    scrollToTopBtn.style.display = "block";
+                } else {
+                    scrollToTopBtn.style.display = "none";
+                }
+            };
+            scrollToTopBtn.addEventListener('click', () => {
+                window.scrollTo({top: 0, behavior: 'smooth'});
+            });
+            
+            function toggleMaintenanceUI(isActive) {
+                isMaintenanceModeActive = isActive;
+                if (isActive) {
+                    maintenanceBanner.classList.remove('hidden');
+                    toggleMaintenanceBtn.classList.add('hidden');
+                    document.body.style.paddingTop = '60px';
+                    maintenanceModePassword = ADMIN_PASSWORDS[loggedInAdminUser];
+                } else {
+                    maintenanceBanner.classList.add('hidden');
+                    toggleMaintenanceBtn.classList.remove('hidden');
+                    document.body.style.paddingTop = '0px';
+                    maintenanceModePassword = null;
+                }
+            }
+            
+            toggleMaintenanceBtn.addEventListener('click', () => {
+                maintenanceAuthModal.classList.remove('hidden');
+                maintenancePasswordInput.value = '';
+                maintenancePasswordInput.focus();
+            });
+
+            exitMaintenanceBtn.addEventListener('click', () => {
+                toggleMaintenanceUI(false);
+                showToast('Modo de Manutenção desativado.');
+            });
+
+            cancelMaintenanceBtn.addEventListener('click', () => {
+                maintenanceAuthModal.classList.add('hidden');
+            });
+
+            confirmMaintenanceBtn.addEventListener('click', () => {
+                const enteredPassword = maintenancePasswordInput.value;
+                const correctPassword = ADMIN_PASSWORDS[loggedInAdminUser];
+                
+                if (enteredPassword === correctPassword) {
+                    toggleMaintenanceUI(true);
+                    maintenanceAuthModal.classList.add('hidden');
+                    showToast('Modo de Manutenção ativado com sucesso.');
+                } else {
+                    showToast('Senha incorreta. Tente novamente.', true);
+                    maintenancePasswordInput.value = '';
+                }
+            });
+
+
+            const fetchStudents = async () => {
+                loadingIndicator.style.display = 'block';
+                errorMessage.classList.add('hidden');
+                try {
+                    const response = await fetch(`${serverUrl}/api/students`);
+                    if (!response.ok) throw new Error('Falha na rede ou o servidor não respondeu.');
+                    allStudents = await response.json();
+                    allStudents.sort(naturalSort);
+                    schools = [...new Set(allStudents.map(s => s.school).filter(s => s))].sort();
+                    renderCurrentTab();
+                } catch (error) {
+                    errorText.textContent = `Erro ao carregar dados: ${error.message}. O servidor pode estar a iniciar (isto pode demorar até 60s).`;
+                    errorMessage.classList.remove('hidden');
+                } finally {
+                    loadingIndicator.style.display = 'none';
+                }
+            };
+            
+            async function generatePDF(data, type, title = '') {
+                if (!selectedStudentForReport && type === 'relatorio_individual') return;
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                
+                if (type === 'relatorio_individual') {
+                    doc.setFontSize(20);
+                    doc.text(`Relatório de Transações`, 105, 20, { align: 'center' });
+                    doc.setFontSize(12);
+                    doc.text(`Paciente: ${selectedStudentForReport.fullName}`, 14, 40);
+                    doc.text(`B.I: ${selectedStudentForReport.biNumber}`, 14, 46);
+                    const tableColumn = ["Data", "Serviço", "Departamento", "Valor", "Saldo Restante"];
+                    const tableRows = data.map(tx => [ new Date(tx.createdAt).toLocaleString('pt-AO'), tx.service, tx.department || 'N/A', `-${formatCurrency(tx.amount)}`, `${formatCurrency(tx.newBalance)}` ]);
+                    doc.autoTable({ head: [tableColumn], body: tableRows, startY: 55 });
+                    doc.save(`relatorio_${selectedStudentForReport.fullName.replace(/\s/g, '_')}.pdf`);
+                } else if (type === 'lista_escola') {
+                    const schoolName = document.getElementById('filter-school-escolas').value;
+                    doc.setFontSize(20);
+                    doc.text(`Lista de Pacientes - ${schoolName}`, 105, 20, { align: 'center' });
+                    const tableColumn = ["Nome Completo", "Nº de B.I", "Telefone", "Saldo (AOA)"];
+                    const tableRows = data.map(s => [s.fullName, s.biNumber, s.phone, formatCurrency(s.balance)]);
+                    doc.autoTable({ head: [tableColumn], body: tableRows, startY: 30 });
+                    doc.save(`lista_pacientes_${schoolName.replace(/\s/g, '_')}.pdf`);
+                } else if (type === 'lista_sem_saldo') {
+                    doc.setFontSize(20);
+                    doc.text(title, 105, 20, { align: 'center' });
+                    doc.setFontSize(12);
+                    doc.text(`Total de Pacientes: ${data.length}`, 14, 30);
+                    const tableColumn = ["Nome Completo", "Nº de B.I", "Escola", "Telefone", "Saldo (AOA)"];
+                    const tableRows = data.map(s => [s.fullName, s.biNumber, s.school, s.phone, formatCurrency(s.balance)]);
+                    doc.autoTable({ head: [tableColumn], body: tableRows, startY: 35 });
+                    doc.save(`lista_clientes_sem_saldo.pdf`);
+                }
+            }
+
+            async function generateSchoolListPDF() {
+                const schoolName = document.getElementById('filter-school-escolas').value;
+                if (!schoolName) return showToast('Por favor, selecione uma escola primeiro.', true);
+                const studentsOfSchool = allStudents.filter(s => s.school === schoolName);
+                generatePDF(studentsOfSchool, 'lista_escola');
+            }
+
+            async function generateSchoolReportPDF() {
+                const schoolName = document.getElementById('filter-school-relatorios').value;
+                if (!schoolName) {
+                    return showToast('Por favor, selecione uma escola para gerar o relatório.', true);
+                }
+                const studentsInSchool = allStudents.filter(s => s.school === schoolName);
+                if (studentsInSchool.length === 0) {
+                    return showToast('Não há pacientes nesta escola para gerar um relatório.', true);
+                }
+                const studentCount = studentsInSchool.length;
+                const totalInitialCredit = studentCount * INITIAL_CREDIT;
+                const totalRemainingBalance = studentsInSchool.reduce((sum, student) => sum + student.balance, 0);
+                const totalUsed = totalInitialCredit - totalRemainingBalance;
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                doc.setFontSize(20);
+                doc.text(`Relatório Geral da Escola`, 105, 20, { align: 'center' });
+                doc.setFontSize(14);
+                doc.text(`Escola: ${schoolName}`, 14, 40);
+                doc.setFontSize(12);
+                doc.text(`Número Total de Pacientes: ${studentCount}`, 14, 50);
+                doc.text(`Valor Total do Crédito Inicial: ${formatCurrency(totalInitialCredit)}`, 14, 56);
+                doc.text(`Valor Total Gasto: ${formatCurrency(totalUsed)}`, 14, 62);
+                doc.text(`Valor Total Restante: ${formatCurrency(totalRemainingBalance)}`, 14, 68);
+                const tableColumn = ["Nome Completo", "Nº de B.I", "Valor Gasto", "Saldo Restante"];
+                const tableRows = studentsInSchool.map(s => {
+                    const spent = INITIAL_CREDIT - s.balance;
+                    return [s.fullName, s.biNumber, formatCurrency(spent > 0 ? spent : 0), formatCurrency(s.balance)];
+                });
+                doc.autoTable({ head: [tableColumn], body: tableRows, startY: 75 });
+                doc.save(`relatorio_geral_${schoolName.replace(/\s/g, '_')}.pdf`);
+            }
+
+            async function generateTransactionsPDF() {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF('l', 'mm', 'a4'); 
+                const startDate = document.getElementById('transactionsStartDate').value;
+                const endDate = document.getElementById('transactionsEndDate').value;
+                const schoolName = document.getElementById('transactionsSchool').value;
+                const totalValue = currentTransactionsReportData.reduce((sum, tx) => sum + tx.amount, 0);
+
+                doc.setFontSize(20);
+                let reportTitle = 'Relatório de Transações';
+                if (schoolName) {
+                    reportTitle += ` - Escola: ${schoolName}`;
+                }
+                doc.text(reportTitle, 148, 20, { align: 'center' });
+                doc.setFontSize(12);
+                doc.text(`Período: ${new Date(startDate).toLocaleDateString('pt-PT')} - ${new Date(endDate).toLocaleDateString('pt-PT')}`, 14, 40);
+                doc.text(`Número de Transações: ${currentTransactionsReportData.length}`, 14, 46);
+                doc.setFont("helvetica", "bold");
+                doc.text(`Valor Total: ${formatCurrency(totalValue)}`, 14, 52);
+                doc.setFont("helvetica", "normal");
+                
+                const tableColumn = ["Data", "Paciente", "Escola", "Serviço / Fatura", "Departamento", "Atendido por", "Valor"];
+                const tableRows = currentTransactionsReportData.map(tx => [ 
+                    new Date(tx.createdAt).toLocaleString('pt-AO'), 
+                    tx.student?.fullName || 'N/A',
+                    tx.student?.school || 'N/A', 
+                    tx.service, 
+                    tx.department,
+                    tx.attendedBy,
+                    formatCurrency(tx.amount)
+                ]);
+
+                doc.autoTable({ head: [tableColumn], body: tableRows, startY: 65 });
+                doc.save(`relatorio_transacoes_${startDate}_ate_${endDate}.pdf`);
+            }
+
+            const renderCurrentTab = () => {
+                const activeTabId = document.querySelector('.tab-active')?.dataset.tab;
+                if (!activeTabId) return;
+                
+                const contentContainer = document.getElementById(activeTabId);
+                if (contentContainer && !contentContainer.innerHTML.trim()) {
+                    switch (activeTabId) {
+                        case 'transacoes': renderTransacoes(); break;
+                        case 'limpar': renderLimparHistorico(); break;
+                        case 'lista': renderListaAlunos(); break;
+                        case 'relatorios': renderRelatorios(); break;
+                        case 'gestao': renderGestao(); break;
+                        case 'escolas': renderEscolas(); break;
+                    }
+                }
+
+                if (activeTabId !== 'transacoes' && activeTabId !== 'limpar') {
+                    applyFilters(activeTabId); 
+                }
+            };
+            
+            const createFiltersHTML = (idPrefix, showPrintButton = false, showSchoolReportButton = false) => {
+                let printButtonHTML = showPrintButton ? `<div class="mt-4"><button id="print-school-list-btn-${idPrefix}" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center"><svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg><span>Imprimir Lista</span></button></div>` : '';
+                let schoolReportButtonHTML = showSchoolReportButton ? `<div class="mt-4"><button id="print-school-report-btn-${idPrefix}" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center"><svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm0-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h6z"></path></svg><span>Imprimir Relatório da Escola</span></button></div>` : '';
+                
+                // NÂNG CẤP: Dùng grid responsive cho bộ lọc
+                return `<div class="p-4 bg-gray-50 rounded-lg border">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label for="filter-school-${idPrefix}" class="block text-sm font-medium text-gray-700 mb-1">Filtrar por Escola</label>
+                            <select id="filter-school-${idPrefix}" class="w-full p-2 border border-gray-300 rounded-md shadow-sm">
+                                <option value="">Todas as Escolas</option>
+                                ${schools.map(s => `<option value="${s}">${s}</option>`).join('')}
+                            </select>
+                            ${printButtonHTML}
+                        </div>
+                        <div>
+                            <label for="filter-name-${idPrefix}" class="block text-sm font-medium text-gray-700 mb-1">Pesquisar por Nome</label>
+                            <input type="text" id="filter-name-${idPrefix}" placeholder="Digite parte do nome..." class="w-full p-2 border border-gray-300 rounded-md shadow-sm">
+                        </div>
+                        <div>
+                            <label for="filter-bi-${idPrefix}" class="block text-sm font-medium text-gray-700 mb-1">Pesquisar por Nº de B.I</label>
+                            <input type="text" id="filter-bi-${idPrefix}" placeholder="Digite o número do B.I..." class="w-full p-2 border border-gray-300 rounded-md shadow-sm">
+                        </div>
+                    </div>
+                    ${schoolReportButtonHTML ? `<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">${schoolReportButtonHTML}</div>` : ''}
+                </div>`;
+            };
+
+            function renderTransacoes() {
+                const container = document.getElementById('transacoes');
+                const today = new Date().toISOString().split('T')[0];
+                container.innerHTML = `
+                    <h2 class="text-2xl font-bold text-gray-800 mb-4">Relatório de Transações Gerais</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 p-4 bg-gray-50 rounded-lg border">
+                        <div>
+                            <label for="transactionsStartDate" class="block text-sm font-medium text-gray-700 mb-1">De:</label>
+                            <input type="date" id="transactionsStartDate" value="${today}" class="w-full p-2 border border-gray-300 rounded-md shadow-sm">
+                        </div>
+                        <div>
+                            <label for="transactionsEndDate" class="block text-sm font-medium text-gray-700 mb-1">Até:</label>
+                            <input type="date" id="transactionsEndDate" value="${today}" class="w-full p-2 border border-gray-300 rounded-md shadow-sm">
+                        </div>
+                        <div>
+                            <label for="transactionsDepartment" class="block text-sm font-medium text-gray-700 mb-1">Departamento</label>
+                            <select id="transactionsDepartment" class="w-full p-2 border border-gray-300 rounded-md shadow-sm">
+                                <option value="">Todos</option>
+                                <option value="Centro Médico">Centro Médico</option>
+                                <option value="Farmácia">Farmácia</option>
+                                <option value="Administração">Administração</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="transactionsSchool" class="block text-sm font-medium text-gray-700 mb-1">Escola</label>
+                            <select id="transactionsSchool" class="w-full p-2 border border-gray-300 rounded-md shadow-sm">
+                                <option value="">Todas as Escolas</option>
+                                ${schools.map(s => `<option value="${s}">${s}</option>`).join('')}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex flex-col md:flex-row justify-center space-y-2 md:space-y-0 md:space-x-4 mb-6">
+                        <button id="generate-transactions-report-btn" class="w-full md:w-1/3 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg">Gerar Relatório</button>
+                        <button id="print-transactions-report-btn" class="w-full md:w-1/3 bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg" disabled>Imprimir PDF</button>
+                    </div>
+
+                    <div id="transactions-summary" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6"></div>
+                    <div id="transactions-details" class="overflow-x-auto bg-white rounded-lg shadow">
+                        <table class="min-w-full divide-y divide-gray-200 table-professional">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Data</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Paciente</th>
+                                    <!-- NÂNG CẤP: Ẩn trên di động -->
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Escola</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fatura</th>
+                                    <!-- NÂNG CẤP: Ẩn trên di động -->
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Departamento</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Atendido por</th>
+                                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Valor</th>
+                                </tr>
+                            </thead>
+                            <tbody id="transactions-table-body" class="bg-white divide-y divide-gray-200">
+                                <tr><td colspan="7" class="text-center py-10 text-gray-500">Selecione um período e clique em "Gerar Relatório" para ver os dados.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+
+                document.getElementById('generate-transactions-report-btn').addEventListener('click', fetchAndDisplayTransactionsReport);
+                document.getElementById('print-transactions-report-btn').addEventListener('click', generateTransactionsPDF);
+            }
+
+            async function fetchAndDisplayTransactionsReport() {
+                const startDate = document.getElementById('transactionsStartDate').value;
+                const endDate = document.getElementById('transactionsEndDate').value;
+                const department = document.getElementById('transactionsDepartment').value;
+                const school = document.getElementById('transactionsSchool').value;
+                const summaryContainer = document.getElementById('transactions-summary');
+                const tableBody = document.getElementById('transactions-table-body');
+                const printBtn = document.getElementById('print-transactions-report-btn');
+
+                if (!startDate || !endDate) {
+                    return showToast('Por favor, selecione um período de tempo.', true);
+                }
+
+                summaryContainer.innerHTML = `<div class="p-4 text-center">A calcular...</div>`;
+                tableBody.innerHTML = `<tr><td colspan="7" class="text-center py-10">A carregar transações...</td></tr>`;
+                printBtn.disabled = true;
+
+                try {
+                    const params = new URLSearchParams({ startDate, endDate });
+                    if (department) {
+                        params.append('department', department);
+                    }
+                    if (school) {
+                        params.append('school', school);
+                    }
+
+                    const response = await fetch(`${serverUrl}/api/transactions/report?${params.toString()}`);
+                    const transactions = await response.json();
+                    
+                    if (!response.ok) throw new Error(transactions.message || 'Erro ao carregar relatório.');
+
+                    currentTransactionsReportData = transactions;
+
+                    const totalValue = transactions.reduce((sum, tx) => sum + tx.amount, 0);
+                    const transactionCount = transactions.length;
+
+                    summaryContainer.innerHTML = `
+                        <div class="p-4 bg-green-50 rounded-lg border border-green-200">
+                            <p class="text-sm font-medium text-green-800">Valor Total no Período</p>
+                            <p class="text-3xl font-bold text-green-700">${formatCurrency(totalValue)}</p>
+                        </div>
+                        <div class="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                            <p class="text-sm font-medium text-blue-800">Total de Transações</p>
+                            <p class="text-3xl font-bold text-blue-700">${transactionCount}</p>
+                        </div>
+                    `;
+
+                    if (transactionCount === 0) {
+                        tableBody.innerHTML = `<tr><td colspan="7" class="text-center py-10 text-gray-500">Nenhuma transação encontrada neste período.</td></tr>`;
+                    } else {
+                        tableBody.innerHTML = transactions.map(tx => `
+                            <tr>
+                                <td class="px-6 py-4">${new Date(tx.createdAt).toLocaleString('pt-AO')}</td>
+                                <td class="px-6 py-4">${tx.student?.fullName || '<span class="text-gray-400">N/A</span>'}</td>
+                                <!-- NÂNG CẤP: Ẩn trên di động -->
+                                <td class="px-6 py-4 hidden md:table-cell">${tx.student?.school || '<span class="text-gray-400">N/A</span>'}</td>
+                                <td class="px-6 py-4">${tx.service}</td>
+                                <!-- NÂNG CẤP: Ẩn trên di động -->
+                                <td class="px-6 py-4 hidden md:table-cell">${tx.department}</td>
+                                <td class="px-6 py-4 hidden md:table-cell">${tx.attendedBy}</td>
+                                <td class="px-6 py-4 text-right">${formatCurrency(tx.amount)}</td>
+                            </tr>
+                        `).join('');
+                        printBtn.disabled = false;
+                    }
+                } catch(error) {
+                    summaryContainer.innerHTML = `<p class="text-red-600">Erro: ${error.message}</p>`;
+                    tableBody.innerHTML = `<tr><td colspan="7" class="text-center py-10 text-red-500">Falha ao carregar dados.</td></tr>`;
+                }
+            }
+            
+            function renderLimparHistorico() {
+                const container = document.getElementById('limpar');
+                const today = new Date().toISOString().split('T')[0];
+                container.innerHTML = `<h2 class="text-2xl font-bold text-gray-800 mb-4">Limpar Histórico de Transações</h2><p class="text-sm text-gray-600 mb-6">Selecione uma data e/ou nome para encontrar e eliminar transações registadas incorretamente.</p><div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-gray-50 rounded-lg border"><div><label for="limpar-date" class="block text-sm font-medium text-gray-700 mb-1">Selecione a Data:</label><input type="date" id="limpar-date" value="${today}" class="w-full p-2 border border-gray-300 rounded-md shadow-sm"></div><div><label for="limpar-name" class="block text-sm font-medium text-gray-700 mb-1">Pesquisar por Nome do Paciente:</label><input type="text" id="limpar-name" placeholder="Digite parte do nome..." class="w-full p-2 border border-gray-300 rounded-md shadow-sm"></div><div class="self-end"><button id="limpar-search-btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg">Procurar</button></div></div><div id="limpar-results" class="overflow-x-auto bg-white rounded-lg shadow"><table class="min-w-full divide-y divide-gray-200 table-professional"><thead class="bg-gray-50"><tr><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Data</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Paciente</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fatura</th><th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Valor</th><th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Ação</th></tr></thead><tbody id="limpar-table-body" class="bg-white divide-y divide-gray-200"><tr><td colspan="5" class="text-center py-10 text-gray-500">Selecione uma data e clique em "Procurar".</td></tr></tbody></table></div>`;
+                document.getElementById('limpar-search-btn').addEventListener('click', fetchTransactionsByDate);
+            }
+
+            async function fetchTransactionsByDate() {
+                const date = document.getElementById('limpar-date').value;
+                const name = document.getElementById('limpar-name').value;
+                const tableBody = document.getElementById('limpar-table-body');
+                
+                if (!date) return showToast('Por favor, selecione uma data.', true);
+                
+                tableBody.innerHTML = `<tr><td colspan="5" class="text-center py-10">A procurar transações...</td></tr>`;
+                try {
+                    const params = new URLSearchParams({ date });
+                    if (name) {
+                        params.append('name', name);
+                    }
+
+                    const response = await fetch(`${serverUrl}/api/transactions/by-date?${params.toString()}`);
+                    const transactions = await response.json();
+                    if (!response.ok) throw new Error(transactions.message || 'Erro ao procurar transações.');
+                    if(transactions.length === 0) {
+                        tableBody.innerHTML = `<tr><td colspan="5" class="text-center py-10 text-gray-500">Nenhuma transação encontrada para esta data.</td></tr>`;
+                        return;
+                    }
+                    tableBody.innerHTML = transactions.map(tx => `<tr id="tx-row-${tx._id}"><td class="px-6 py-4">${new Date(tx.createdAt).toLocaleString('pt-AO')}</td><td class="px-6 py-4">${tx.student?.fullName||'<span class="text-gray-400">Paciente Removido</span>'}</td><td class="px-6 py-4">${tx.service}</td><td class="px-6 py-4 text-right">${formatCurrency(tx.amount)}</td><td class="px-6 py-4 text-center"><button onclick="handleDeleteTransaction('${tx._id}', '${tx.student?.fullName || 'N/A'}', '${tx.service}')" class="bg-red-500 hover:bg-red-600 text-white font-bold py-1 px-3 rounded-md text-xs">Eliminar</button></td></tr>`).join('');
+                } catch (error) {
+                     tableBody.innerHTML = `<tr><td colspan="5" class="text-center py-10 text-red-500">${error.message}</td></tr>`;
+                }
+            }
+
+            window.handleDeleteTransaction = (transactionId, studentName, service) => {
+                 deleteTransactionModal.innerHTML = `<div class="relative top-20 mx-auto p-5 border w-full max-w-md shadow-lg rounded-md bg-white"><div class="mt-3 text-center"><div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100"><svg class="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg></div><h3 class="text-lg font-medium text-gray-900 mt-2">Eliminar Transação</h3><p class="text-sm text-gray-500 mt-2">Tem a certeza que quer eliminar a transação <strong>${service}</strong> do paciente <strong>${studentName}</strong>? O valor será reembolsado.</p><div class="mt-4 flex justify-center space-x-2"><button id="cancel-delete-tx-btn" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md">Cancelar</button><button id="confirm-delete-tx-btn" class="px-4 py-2 bg-red-500 text-white rounded-md">Sim, Eliminar</button></div></div></div>`;
+                 deleteTransactionModal.classList.remove('hidden');
+                 document.getElementById('cancel-delete-tx-btn').addEventListener('click', () => closeModal(deleteTransactionModal));
+                 document.getElementById('confirm-delete-tx-btn').addEventListener('click', async () => {
+                     try {
+                        const headers = { 'Content-Type': 'application/json' };
+                        if (isMaintenanceModeActive && maintenanceModePassword) {
+                            headers['X-Maintenance-Mode'] = 'true';
+                            headers['X-Admin-Password'] = maintenanceModePassword;
+                        }
+
+                        const response = await fetch(`${serverUrl}/api/transactions/${transactionId}`, { 
+                            method: 'DELETE',
+                            headers: headers
+                        });
+                         
+                         if (!response.ok) { const err = await response.json(); throw new Error(err.message || 'Falha ao eliminar.'); }
+                         showToast('Transação eliminada e valor reembolsado com sucesso.');
+                         closeModal(deleteTransactionModal);
+                         fetchTransactionsByDate();
+                     } catch (error) {
+                         closeModal(deleteTransactionModal);
+                         showToast(`Erro ao eliminar: ${error.message}`, true);
+                     }
+                 });
+            }
+
+            function renderListaAlunos() {
+                const container = document.getElementById('lista');
+                // NÂNG CẤP: Ẩn các cột 'Nº de B.I', 'Escola', 'Telefone' trên <th>
+                container.innerHTML = `${createFiltersHTML('lista')}<div class="overflow-x-auto bg-white rounded-lg shadow mt-6"><table class="min-w-full divide-y divide-gray-200 table-professional"><thead class="bg-gray-50"><tr><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome Completo</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Nº de B.I</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Escola</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Telefone</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Saldo (AOA)</th></tr></thead><tbody id="lista-table-body" class="bg-white divide-y divide-gray-200"></tbody></table></div><p id="lista-count" class="mt-4 text-sm text-gray-600"></p>`;
+                addFilterListeners('lista');
+            }
+
+            function renderRelatorios() {
+                const container = document.getElementById('relatorios');
+                container.innerHTML = `
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div class="lg:col-span-1">
+                            ${createFiltersHTML('relatorios', false, true)}
+                            <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <button id="filter-no-balance-btn" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center">
+                                    <svg class="w-5 h-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607zM10.5 7.5v6m3-3h-6" /></svg>
+                                    <span>Clientes sem Saldo</span>
+                                </button>
+                                <button id="print-no-balance-btn" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center hidden">
+                                     <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+                                    <span>Imprimir Lista</span>
+                                </button>
+                            </div>
+                            <hr class="my-6">
+                            <div id="report-search-results" class="space-y-2 max-h-96 overflow-y-auto bg-gray-50 p-2 rounded-lg border"></div>
+                        </div>
+                        <div class="lg:col-span-2 bg-white p-6 rounded-lg shadow">
+                            <div id="report-placeholder" class="text-center text-gray-500 py-20"><svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg><h3 class="mt-2 text-sm font-medium text-gray-900">Nenhum Paciente Selecionado</h3><p class="mt-1 text-sm text-gray-500">Pesquise e selecione um paciente para ver o seu relatório.</p></div>
+                            <div id="report-details" class="hidden"></div>
+                        </div>
+                    </div>`;
+                addFilterListeners('relatorios');
+                const schoolReportBtn = document.getElementById('print-school-report-btn-relatorios');
+                if (schoolReportBtn) schoolReportBtn.addEventListener('click', generateSchoolReportPDF);
+                
+                const filterNoBalanceBtn = document.getElementById('filter-no-balance-btn');
+                const printNoBalanceBtn = document.getElementById('print-no-balance-btn');
+
+                filterNoBalanceBtn.addEventListener('click', () => {
+                    document.getElementById('filter-school-relatorios').value = '';
+                    document.getElementById('filter-name-relatorios').value = '';
+                    document.getElementById('filter-bi-relatorios').value = '';
+                    const studentsWithNoBalance = allStudents.filter(s => s.balance <= 0);
+                    currentFilteredStudentsForPdf = studentsWithNoBalance;
+                    displayReportSearchResults(studentsWithNoBalance);
+                    printNoBalanceBtn.classList.remove('hidden'); 
+                    showToast(`${studentsWithNoBalance.length} pacientes sem saldo encontrados.`);
+                });
+                printNoBalanceBtn.addEventListener('click', () => {
+                    generatePDF(currentFilteredStudentsForPdf, 'lista_sem_saldo', 'Lista de Clientes sem Saldo');
+                });
+            }
+            
+            function renderGestao() {
+                const container = document.getElementById('gestao');
+                // NÂNG CẤP: Ẩn các cột 'B.I', 'Escola', 'Telefone' trên <th>
+                container.innerHTML = `<div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4"><div><h2 class="text-xl font-bold text-gray-800">Gestão de Pacientes</h2></div><button id="create-student-btn" class="w-full md:w-auto bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center"><svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg><span>Criar Novo Paciente</span></button></div>${createFiltersHTML('gestao')}<div class="overflow-x-auto bg-white rounded-lg shadow mt-6"><table class="min-w-full divide-y divide-gray-200 table-professional"><thead class="bg-gray-50"><tr><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">B.I</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Escola</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Telefone</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Saldo</th><th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th></tr></thead><tbody id="gestao-table-body"></tbody></table></div><p id="gestao-count" class="mt-4 text-sm text-gray-600"></p>`;
+                document.getElementById('create-student-btn').addEventListener('click', () => openStudentModal());
+                addFilterListeners('gestao');
+            }
+
+            function renderEscolas() {
+                const container = document.getElementById('escolas');
+                // NÂNG CẤP: Ẩn cột 'Nº de B.I' trên <th>
+                container.innerHTML = `${createFiltersHTML('escolas', true)}<div class="overflow-x-auto bg-white rounded-lg shadow mt-6"><table class="min-w-full divide-y divide-gray-200 table-professional"><thead class="bg-gray-50"><tr><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome Completo</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Nº de B.I</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Escola</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Saldo (AOA)</th></tr></thead><tbody id="escolas-table-body" class="bg-white divide-y divide-gray-200"></tbody></table></div><p id="escolas-count" class="mt-4 text-sm text-gray-600"></p>`;
+                addFilterListeners('escolas');
+                const schoolListBtn = document.getElementById('print-school-list-btn-escolas');
+                if(schoolListBtn) {
+                   schoolListBtn.addEventListener('click', generateSchoolListPDF);
+                }
+            }
+
+            function addFilterListeners(idPrefix) {
+                const schoolInput = document.getElementById(`filter-school-${idPrefix}`);
+                const nameInput = document.getElementById(`filter-name-${idPrefix}`);
+                const biInput = document.getElementById(`filter-bi-${idPrefix}`);
+                if (filterState[idPrefix]) {
+                    schoolInput.value = filterState[idPrefix].school || '';
+                    nameInput.value = filterState[idPrefix].name || '';
+                    biInput.value = filterState[idPrefix].bi || '';
+                }
+                schoolInput.addEventListener('input', () => applyFilters(idPrefix));
+                nameInput.addEventListener('input', () => applyFilters(idPrefix));
+                biInput.addEventListener('input', () => applyFilters(idPrefix));
+            }
+
+            function applyFilters(idPrefix) {
+                const activeTabId = document.querySelector('.main-content.active')?.id || idPrefix;
+                if (!activeTabId) return;
+
+                const school = document.getElementById(`filter-school-${activeTabId}`).value;
+                const name = document.getElementById(`filter-name-${activeTabId}`).value.toLowerCase();
+                const bi = document.getElementById(`filter-bi-${activeTabId}`).value;
+                
+                filterState[activeTabId] = { school, name, bi };
+                let filtered = allStudents.filter(s => (!school || s.school === school) && (s.fullName.toLowerCase().includes(name)) && (s.biNumber.includes(bi)));
+
+                if (activeTabId === 'lista') {
+                    populateTable('lista-table-body', filtered, false);
+                } else if (activeTabId === 'relatorios') {
+                    displayReportSearchResults(filtered);
+                } else if (activeTabId === 'gestao') {
+                    populateTable('gestao-table-body', filtered, true);
+                } else if (activeTabId === 'escolas') {
+                    populateTable('escolas-table-body', filtered, false);
+                }
+                
+                const countEl = document.getElementById(`${activeTabId}-count`);
+                if(countEl) {
+                    countEl.textContent = `Exibindo ${filtered.length} de ${allStudents.length} pacientes.`;
+                }
+            }
+            
+            function populateTable(tbodyId, students, includeActions) {
+                const tbody = document.getElementById(tbodyId);
+                if (!tbody) return;
+                tbody.innerHTML = '';
+                let colspan = includeActions ? 6 : 5;
+                if (tbodyId.includes('escolas')) colspan = 4;
+                if (tbodyId.includes('lista')) colspan = 5;
+
+                if (students.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="${colspan}" class="text-center py-10 text-gray-500">Nenhum paciente encontrado.</td></tr>`;
+                    return;
+                }
+                students.forEach(s => {
+                    const row = document.createElement('tr');
+                    
+                    // NÂNG CẤP: Thêm class 'hidden md:table-cell' vào các <td> tương ứng
+                    let cells = `
+                        <td class="px-6 py-4">${s.fullName}</td>
+                        <td class="px-6 py-4 hidden md:table-cell">${s.biNumber}</td>
+                        <td class="px-6 py-4 ${tbodyId.includes('escolas') ? '' : 'hidden md:table-cell'}">${s.school}</td>
+                    `;
+                    
+                    if (!tbodyId.includes('escolas')) {
+                        cells += `<td class="px-6 py-4 hidden md:table-cell">${s.phone}</td>`;
+                    }
+                    
+                    cells += `<td class="px-6 py-4 font-semibold ${s.balance < 0 ? 'text-red-600' : 'text-green-600'}">${formatCurrency(s.balance)}</td>`;
+                    
+                    if (includeActions) {
+                        // NÂNG CẤP: Bọc các nút trong <div> với flex-col md:flex-row
+                        cells += `
+                            <td class="px-6 py-4 text-center text-sm font-medium">
+                                <div class="flex flex-col md:flex-row gap-2 justify-center">
+                                    <button data-id="${s._id}" class="debit-btn responsive-action-btn inline-flex items-center justify-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-blue-600 hover:bg-blue-700">Novo Débito</button>
+                                    <button data-id="${s._id}" class="edit-btn responsive-action-btn inline-flex items-center justify-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-green-600 hover:bg-green-700">Editar</button>
+                                    <button data-id="${s._id}" data-name="${s.fullName}" class="delete-btn responsive-action-btn inline-flex items-center justify-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-red-600 hover:bg-red-700">Eliminar</button>
+                                </div>
+                            </td>`;
+                    }
+                    row.innerHTML = cells;
+                    tbody.appendChild(row);
+                });
+
+                if (includeActions) {
+                    tbody.querySelectorAll('.edit-btn').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            const studentId = e.currentTarget.dataset.id;
+                            const student = allStudents.find(s => s._id === studentId);
+                            openStudentModal(student);
+                        });
+                    });
+                    tbody.querySelectorAll('.debit-btn').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            const studentId = e.currentTarget.dataset.id;
+                            const student = allStudents.find(s => s._id === studentId);
+                            openDebitModal(student);
+                        });
+                    });
+                    tbody.querySelectorAll('.delete-btn').forEach(btn => btn.addEventListener('click', (e) => {
+                        const { id, name } = e.currentTarget.dataset;
+                        openDeleteModal(id, name);
+                    }));
+                }
+            }
+
+
+            function displayReportSearchResults(students) {
+                const container = document.getElementById('report-search-results');
+                container.innerHTML = '';
+                if (students.length === 0) {
+                    container.innerHTML = `<p class="text-center text-sm text-gray-500 p-4">Nenhum paciente encontrado.</p>`;
+                } else {
+                    students.forEach(student => {
+                        const div = document.createElement('div');
+                        div.className = 'p-3 border rounded-md bg-white hover:bg-green-50 cursor-pointer transition-colors';
+                        div.innerHTML = `<p class="font-semibold text-gray-800">${student.fullName}</p><p class="text-xs text-gray-500">${student.school}</p>`;
+                        div.addEventListener('click', () => {
+                            selectedStudentForReport = student;
+                            fetchAndDisplayTransactions(student._id);
+                            container.querySelectorAll('div').forEach(el => el.classList.remove('ring-2', 'ring-green-500'));
+                            div.classList.add('ring-2', 'ring-green-500');
+                        });
+                        container.appendChild(div);
+                    });
+                }
+            }
+            
+            async function fetchAndDisplayTransactions(studentId, startDate, endDate) {
+                document.getElementById('report-placeholder').classList.add('hidden');
+                const detailsContainer = document.getElementById('report-details');
+                detailsContainer.classList.remove('hidden');
+                detailsContainer.innerHTML = `<div class="text-center p-5"><svg class="animate-spin h-6 w-6 text-green-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg><p class="mt-1 text-sm">A carregar...</p></div>`;
+
+                let url = `${serverUrl}/api/transactions/${studentId}`;
+                const params = new URLSearchParams();
+                if (startDate) params.append('startDate', startDate);
+                if (endDate) params.append('endDate', endDate);
+                if(startDate || endDate) url += `?${params.toString()}`;
+
+                try {
+                    const res = await fetch(url);
+                    if (!res.ok) throw new Error('Falha ao carregar transações.');
+                    const transactions = await res.json();
+                    
+                    detailsContainer.innerHTML = `
+                        <div class="flex flex-col md:flex-row justify-between items-start mb-4 gap-2">
+                            <div>
+                                <h2 class="text-2xl font-bold text-gray-800">${selectedStudentForReport.fullName}</h2>
+                                <p class="text-sm text-gray-500">B.I: ${selectedStudentForReport.biNumber}</p>
+                            </div>
+                            <button id="print-report-btn" class="w-full md:w-auto bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg">Imprimir</button>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4 p-4 border rounded-lg bg-gray-50">
+                            <div><label for="startDate" class="text-sm">De:</label><input type="date" id="startDate" value="${startDate || ''}" class="w-full p-1 border rounded"></div>
+                            <div><label for="endDate" class="text-sm">Até:</label><input type="date" id="endDate" value="${endDate || ''}" class="w-full p-1 border rounded"></div>
+                            <div class="self-end"><button id="filter-date-btn" class="w-full bg-gray-600 text-white py-2 px-4 rounded-md hover:bg-gray-700">Filtrar</button></div>
+                        </div>
+                        <div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr><th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Serviço</th><th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Data</th><th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Departamento</th><th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Valor</th><th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Saldo Restante</th></tr></thead><tbody id="report-transactions-table" class="bg-white divide-y"></tbody></table></div>`;
+                    
+                    const tableBody = document.getElementById('report-transactions-table');
+                    if (transactions.length === 0) {
+                        tableBody.innerHTML = `<tr><td colspan="5" class="text-center py-10 text-gray-500">Nenhuma transação encontrada para o período selecionado.</td></tr>`;
+                    } else {
+                        transactions.forEach(tx => {
+                            const row = document.createElement('tr');
+                            row.innerHTML = `<td class="px-4 py-3 text-sm">${tx.service}</td><td class="px-4 py-3 text-sm">${new Date(tx.createdAt).toLocaleString('pt-AO')}</td><td class="px-4 py-3 text-sm hidden md:table-cell">${tx.department || 'N/A'}</td><td class="px-4 py-3 text-sm text-red-600">-${formatCurrency(tx.amount)}</td><td class="px-4 py-3 text-sm text-green-600">${formatCurrency(tx.newBalance)}</td>`;
+                            tableBody.appendChild(row);
+                        });
+                    }
+                    document.getElementById('print-report-btn').addEventListener('click', () => generatePDF(transactions, 'relatorio_individual'));
+                    document.getElementById('filter-date-btn').addEventListener('click', () => {
+                        const start = document.getElementById('startDate').value;
+                        const end = document.getElementById('endDate').value;
+                        if (start && end) {
+                            fetchAndDisplayTransactions(studentId, start, end);
+                        }
+                    });
+                } catch (error) {
+                    detailsContainer.innerHTML = `<p class="text-red-500 text-center">${error.message}</p>`;
+                }
+            }
+            
+            function openDebitModal(student) {
+                debitModal.innerHTML = `
+                <div class="relative top-20 mx-auto p-6 border w-full max-w-2xl shadow-lg rounded-md bg-white">
+                    <h3 class="text-xl text-center font-semibold text-gray-900">Registar Novo Débito</h3>
+                    <p class="text-center text-sm text-gray-600 mt-1">Para o paciente: <span class="font-bold">${student.fullName}</span></p>
+                    <form id="debit-form" class="mt-6 space-y-4">
+                        <!-- NÂNG CẤP: Dùng grid responsive -->
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-500">Saldo Atual</label>
+                                <div class="mt-1 p-3 w-full text-lg font-bold ${student.balance < 0 ? 'text-red-600' : 'text-green-700'} bg-gray-100 rounded-md">${formatCurrency(student.balance)}</div>
+                            </div>
+                            <div class="md:col-span-1">
+                                <label for="debit-amount" class="block text-sm font-medium text-gray-700">Valor do Débito / Serviço</label>
+                                <input type="number" id="debit-amount" step="any" class="mt-1 p-3 w-full text-lg font-bold text-gray-800 border-gray-300 rounded-md shadow-sm text-center" placeholder="0" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-500">Novo Saldo</label>
+                                <div id="new-debit-balance" class="mt-1 p-3 w-full text-lg font-bold bg-gray-100 rounded-md">${formatCurrency(student.balance)}</div>
+                            </div>
+                        </div>
+                         <div>
+                            <label for="debit-description" class="block text-sm font-medium text-gray-700">Descrição do Serviço / Fatura</label>
+                            <input type="text" id="debit-description" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2" placeholder="Ex: FT FAC 12345, Consulta de emergência..." required>
+                        </div>
+                        <div class="pt-6 flex justify-end space-x-3">
+                            <button type="button" id="cancel-debit-btn" class="px-6 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancelar</button>
+                            <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Registar Débito</button>
+                        </div>
+                    </form>
+                </div>`;
+                debitModal.classList.remove('hidden');
+                
+                const amountInput = document.getElementById('debit-amount');
+                const newBalanceDiv = document.getElementById('new-debit-balance');
+                let newBalanceValue = student.balance;
+
+                amountInput.addEventListener('input', () => {
+                    const amountToDebit = parseFloat(amountInput.value) || 0;
+                    newBalanceValue = student.balance - amountToDebit; 
+                    newBalanceDiv.textContent = formatCurrency(newBalanceValue);
+                    newBalanceDiv.classList.toggle('text-red-600', newBalanceValue < 0);
+                    newBalanceDiv.classList.toggle('text-green-700', newBalanceValue >= 0);
+                });
+
+                document.getElementById('cancel-debit-btn').addEventListener('click', () => closeModal(debitModal));
+                
+                document.getElementById('debit-form').addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const transactionData = {
+                        studentId: student._id,
+                        amount: parseFloat(document.getElementById('debit-amount').value) || 0,
+                        service: document.getElementById('debit-description').value.trim(),
+                        attendedBy: 'Admin', 
+                        department: 'Administração'
+                    };
+
+                    if (transactionData.amount <= 0 || !transactionData.service) {
+                        return showToast('Preencha o valor e a descrição do serviço.', true);
+                    }
+
+                    try {
+                        const response = await fetch(`${serverUrl}/api/transactions`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(transactionData)
+                        });
+                        const result = await response.json();
+                        if (!response.ok) throw new Error(result.message || 'Erro desconhecido.');
+                        
+                        showToast('Débito registado com sucesso!');
+                        closeModal(debitModal);
+                    } catch (error) {
+                        showToast(`Erro ao registar débito: ${error.message}`, true);
+                    }
+                });
+            }
+
+            async function openStudentModal(student = null) {
+                const isEdit = !!student;
+                studentModal.innerHTML = `
+                <div class="relative top-10 mx-auto p-5 border w-full max-w-md shadow-lg rounded-md bg-white">
+                    <h3 class="text-lg text-center font-medium text-gray-900">${isEdit ? 'Editar Paciente' : 'Criar Novo Paciente'}</h3>
+                    <form id="student-form" class="text-left space-y-4 mt-4">
+                        <input type="hidden" id="student-id" value="${isEdit ? student._id : ''}">
+                        <div><label class="text-sm font-medium">Nome Completo</label><input type="text" id="fullName" value="${isEdit ? student.fullName : ''}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required></div>
+                        <div><label class="text-sm font-medium">Nº de B.I</label><input type="text" id="biNumber" value="${isEdit ? student.biNumber : ''}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required></div>
+                        <div><label class="text-sm font-medium">Telefone</label><input type="text" id="phone" value="${isEdit ? student.phone : '9xx xxx xxx'}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required></div>
+                        <div>
+                            <label class="text-sm font-medium">Escola</label>
+                            <select id="school" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required>${schools.map(s => `<option value="${s}" ${isEdit && s === student.school ? 'selected' : ''}>${s}</option>`).join('')}<option value="new">-- Adicionar Nova Escola --</option></select>
+                            <input type="text" id="new-school" placeholder="Nome da Nova Escola" class="hidden mt-2 block w-full rounded-md border-gray-300 shadow-sm">
+                        </div>
+                        <div><label class="text-sm font-medium">Saldo (AOA)</label><input type="number" step="0.01" id="balance" value="${isEdit ? student.balance : '307692'}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required></div>
+                        <div class="pt-4 flex justify-end space-x-2">
+                            <button type="button" id="cancel-modal-btn" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancelar</button>
+                            <button type="submit" class="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600">Salvar</button>
+                        </div>
+                    </form>
+                </div>`;
+                studentModal.classList.remove('hidden');
+                const schoolSelect = document.getElementById('school');
+                const newSchoolInput = document.getElementById('new-school');
+                schoolSelect.addEventListener('change', () => newSchoolInput.classList.toggle('hidden', schoolSelect.value !== 'new'));
+                document.getElementById('cancel-modal-btn').addEventListener('click', () => closeModal(studentModal));
+                document.getElementById('student-form').addEventListener('submit', handleFormSubmit);
+            }
+
+            async function handleFormSubmit(e) {
+                e.preventDefault();
+                const id = document.getElementById('student-id').value;
+                const isEdit = !!id;
+                const schoolSelect = document.getElementById('school');
+                const newSchoolInput = document.getElementById('new-school');
+                let schoolValue = schoolSelect.value;
+                if (schoolValue === 'new' && newSchoolInput.value.trim() !== '') {
+                    schoolValue = newSchoolInput.value.trim();
+                } else if (schoolValue === 'new') {
+                    return showToast('Por favor, insira o nome da nova escola.', true);
+                }
+                const studentData = {
+                    fullName: document.getElementById('fullName').value.trim(),
+                    biNumber: document.getElementById('biNumber').value.trim(),
+                    phone: document.getElementById('phone').value.trim(),
+                    school: schoolValue,
+                    balance: parseFloat(document.getElementById('balance').value),
+                };
+                if (!studentData.fullName || !studentData.biNumber || !studentData.phone) {
+                    return showToast('Todos os campos são obrigatórios.', true);
+                }
+                const url = isEdit ? `${serverUrl}/api/students/${id}` : `${serverUrl}/api/students`;
+                const method = isEdit ? 'PUT' : 'POST';
+                try {
+                    const response = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(studentData) });
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.message || 'Erro desconhecido.');
+                    closeModal(studentModal);
+                } catch (error) {
+                    showToast(`Erro ao salvar: ${error.message}`, true);
+                }
+            }
+
+            function openDeleteModal(id, name) {
+                deleteModal.innerHTML = `<div class="relative top-20 mx-auto p-5 border w-full max-w-md shadow-lg rounded-md bg-white"><div class="mt-3 text-center"><div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100"><svg class="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg></div><h3 class="text-lg font-medium text-gray-900 mt-2">Eliminar Paciente</h3><p class="text-sm text-gray-500 mt-2">Tem a certeza que quer eliminar o registo de <strong>${name}</strong>? Esta ação é irreversível.</p><div class="mt-4 flex justify-center space-x-2"><button id="cancel-delete-btn" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md">Cancelar</button><button id="confirm-delete-btn" class="px-4 py-2 bg-red-500 text-white rounded-md">Sim, Eliminar</button></div></div></div>`;
+                deleteModal.classList.remove('hidden');
+                document.getElementById('cancel-delete-btn').addEventListener('click', () => closeModal(deleteModal));
+                document.getElementById('confirm-delete-btn').addEventListener('click', async () => {
+                    try {
+                        const response = await fetch(`${serverUrl}/api/students/${id}`, { method: 'DELETE' });
+                        if (!response.ok) throw new Error('Falha ao eliminar.');
+                        closeModal(deleteModal);
+                    } catch (error) {
+                        showToast(`Erro ao eliminar: ${error.message}`, true);
+                    }
+                });
+            }
+
+            function closeModal(modal) {
+                modal.classList.add('hidden');
+                modal.innerHTML = '';
+            }
+
+            function showToast(message, isError = false) {
+                toast.textContent = message;
+                toast.style.backgroundColor = isError ? '#ef4444' : '#22c55e';
+                toast.classList.add('show');
+                setTimeout(() => toast.classList.remove('show'), 3000);
+            }
+
+            tabs.forEach(tab => {
+                tab.addEventListener('click', (e) => {
+                    tabs.forEach(t => t.classList.remove('tab-active'));
+                    contents.forEach(c => c.classList.remove('active'));
+                    e.currentTarget.classList.add('tab-active');
+                    const activeContent = document.getElementById(e.currentTarget.dataset.tab);
+                    activeContent.classList.add('active');
+                    renderCurrentTab();
+                });
+            });
+
+            checkLoginStatus(); 
+
+        });
+    </script>
+</body>
+</html>
